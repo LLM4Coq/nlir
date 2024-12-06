@@ -1,4 +1,5 @@
 import hydra
+import weave
 import sys
 import json
 import numpy as np
@@ -18,16 +19,19 @@ def check_benchmark(
 ) -> list[tuple[Path, str]]:
     errors = []
     theorems = []
+    counter = 0
     for thms in cfg.benchmark:
         file_path = Path(wk_path, thms.file).absolute()
         for thm in thms.theorems:
-            try:
-                pet.start(str(file_path), thm)
-                theorems.append((file_path, thm))
-            except PetanqueError as err:
-                errors.append(f"- File {thms.file} {thm}: {err.message}")
+            if counter in range(cfg.start_theorem,cfg.end_theorem):
+                try:
+                    pet.start(str(file_path), thm)
+                    theorems.append((file_path, thm))
+                except PetanqueError as err:
+                    errors.append(f"- File {thms.file} {thm}: {err.message}")
+            counter += 1
     if not errors:
-        print(f"Benchmarking {len(theorems)} theorems in {len(cfg.benchmark)} files")
+        print(f"Benchmarking {len(theorems)} theorems starting from {cfg.start_theorem} in {len(cfg.benchmark)} files")
     else:
         print(f"Config contains the following errors:", file=sys.stderr)
         print("\n".join(errors), file=sys.stderr)
@@ -76,8 +80,7 @@ def main(cfg: DictConfig):
             log_path.parent.mkdir(parents=True, exist_ok=True)
             agent = GPT(
                 str(log_path),
-                cfg.agent.model_id,
-                cfg.agent.temperature,
+                cfg.agent,
             )
 
         env = env_cls(
@@ -93,11 +96,15 @@ def main(cfg: DictConfig):
 
     elif cfg.benchmark:
         # Try the full benchmark
+        if cfg.weave:
+            model_id = cfg.agent.model_id
+            name_expe = f"{model_id.split('/')[-1]}:{cfg.benchmark[0].file}"
+            weave.init(name_expe)
         log_dir = HydraConfig.get().runtime.output_dir
 
         results = {"names": [], "success": [], "steps": []}
-        res_path = Path(log_dir, "eval_results.json")
-        theorems = check_benchmark(pet, wk_path, cfg)[: cfg.num_theorems]
+        theorems = check_benchmark(pet, wk_path, cfg)
+        res_path = Path(log_dir, f"eval_results_{cfg.start_theorem}_{len(theorems)}.json")
 
         for file_path, thm in theorems:
             print(f"\n\nTrying to prove {thm} from {file_path.stem}")
@@ -105,10 +112,10 @@ def main(cfg: DictConfig):
             log_path = Path(log_dir, f"{file_path.stem}:{thm}.jsonl").absolute()
             agent = GPT(
                 str(log_path),
-                cfg.agent.model_id,
-                cfg.agent.temperature,
+                cfg.agent,
             )
-            status = search(agent, env, cfg.search.max_steps)
+            with weave.attributes({"file": file_path.stem, "thm": thm}):
+                status = search(agent, env, cfg.search.max_steps)
             results["names"].append(f"{env.file}:{env.thm}")
             results["success"].append(status.success)
             results["steps"].append(status.steps)
@@ -117,8 +124,8 @@ def main(cfg: DictConfig):
 
         print(f"\n\n--- Summary ---")
         print(f"Theorems: {len(theorems)}")
-        print(f"Successes: {np.sum(results["success"])}")
-        print(f"Average number of steps: {np.mean(results["steps"])}")
+        print(f"Successes: {np.sum(results['success'])}")
+        print(f"Average number of steps: {np.mean(results['steps'])}")
         print("---\n\n")
         sys.exit(0)
 

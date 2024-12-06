@@ -8,7 +8,7 @@ from openai.types.chat import ChatCompletionMessageParam, ChatCompletionMessage
 from .prompts import comparison_prompts
 from functools import partial
 from ast import literal_eval
-
+import weave
 
 @dataclass
 class Status:
@@ -16,7 +16,7 @@ class Status:
     success: bool
     proof: str
 
-
+@weave.op()
 def naive_search(agent: LLM, env: Env, max_steps: int) -> Status:
     response = agent.response(env.prompt)  # Initial step
     for step in range(max_steps):
@@ -90,7 +90,7 @@ def parse_comparison(
         return parsed  
     return []
 
-
+@weave.op()
 def sort_LLM(new_beam: list[Env], agent: LLM) -> list[Env]:
     comparison_prompt = create_comparison_prompt(new_beam)
     response = agent.response(comparison_prompt)
@@ -104,7 +104,39 @@ def sort_LLM(new_beam: list[Env], agent: LLM) -> list[Env]:
 def sort_holes(new_beam: list[TemplateEnv]) -> list[TemplateEnv]:
     return sorted(new_beam, key=lambda x: len(x.holes))
 
+@weave.op()
+def expand_beam(
+    beam: list[Env], agent: LLM, n_reponses: int
+) -> list[Env]:
+    new_beam = []
+    for env in beam:
+        responses = agent.multi_responses(env.prompt, n_reponses)
+        for response in responses:
+            env_copy = env.deepcopy()
+            env_copy.exec(response)
+            proof = " ".join(env_copy.proof)
+            print(proof)
+            if env_copy.proof_finished:
+                if env_copy.check_proof():
+                    agent.log({"role": "user", "content": f"Final Proof: {proof}"})
+                    return [env_copy]
+            else:
+                try:
+                    if len(str(env_copy.prompt)) > 100000:
+                        # prompt is too big, env will not be added to the beam
+                        continue
+                    elif env_copy.proof in [e.proof for e in new_beam]:
+                        # avoid adding duplicate proofs
+                        continue
+                except RuntimeError:
+                    continue 
+            new_beam.append(env_copy)
+    return new_beam
 
+def bs_name(call):
+    return f"BS-{call.attributes['thm']}-{call.attributes['file']}"
+
+@weave.op(call_display_name=bs_name)
 def beam_search(
     agent: LLM,
     env: Env,
@@ -120,28 +152,20 @@ def beam_search(
     for step in range(max_steps):
         print(f"\nBeam search, step {step}:\n")
         # expand bean
-        new_beam = []
-        for env in beam:
-            responses = agent.multi_responses(env.prompt, n_reponses)
-            for response in responses:
-                env_copy = env.deepcopy()
-                env_copy.exec(response)
-                proof = " ".join(env_copy.proof)
-                print(proof)
-                if env_copy.proof_finished:
-                    if env_copy.check_proof():
-                        agent.log({"role": "user", "content": f"Final Proof: {proof}"})
-                        return Status(step, True, proof)
-                else:
-                    if len(str(env_copy.prompt)) > 100000:
-                        # prompt is too big, env will not be added to the beam
-                        continue
-                    new_beam.append(env_copy)
-
+        new_beam = expand_beam(beam, agent, n_reponses)
         if new_beam:
-            # sort new_beam
-            beam = sort_beam(new_beam)
-            beam = beam[:beam_size]
+            if len(new_beam) <= beam_size:
+                if new_beam[0].proof_finished:
+                    proof = " ".join(new_beam[0].proof)
+                    return Status(step, True, proof)
+
+            else: 
+                # sort new_beam
+                beam = sort_beam(new_beam)
+                beam = beam[:beam_size]
+                print("sorted beam:")
+                for b in beam:
+                    print(" ".join(b.proof))
         else:
             proof = " ".join(beam[0].proof)
             agent.log(
@@ -149,6 +173,7 @@ def beam_search(
             )
             return Status(step, False, proof)
 
+    #beam = sort_holes(beam)
     proof = " ".join(beam[0].proof)
     agent.log({"role": "user", "content": f"Partial Proof: {proof}"})
     return Status(max_steps, False, proof)

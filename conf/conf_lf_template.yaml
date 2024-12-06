@@ -12,10 +12,6 @@ petanque:
   run_opts: null
   context: false
 
-agent:
-  model_id: gpt-4o-2024-05-13
-  temperature: 1.0
-
 search:
   kind: template
   mode: beam
@@ -25,6 +21,7 @@ search:
 
 defaults:
   - _self_
+  - agent: gpt
   - benchmark: logical_foundations_non_trivial
   - override hydra/job_logging: none
   - override hydra/hydra_logging: none

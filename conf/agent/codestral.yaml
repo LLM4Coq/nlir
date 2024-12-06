@@ -1,0 +1,4 @@
+model_id: "codestral-latest"
+temperature: 1.0
+local: false
+provider: "mistral"

@@ -1,0 +1,4 @@
+model_id: "codellama:7b-instruct"
+temperature: 1.0
+local: true
+provider: ollama

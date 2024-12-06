@@ -1,9 +1,11 @@
 workspace: "../Coq-BB5"
-num_theorems: 28
+start_theorem: 0
+end_theorem: 100
 log_dir: "logs"
 file: null
 theorem: null
 replay: false
+weave: true
 
 petanque:
   address: 127.0.0.1
@@ -11,10 +13,6 @@ petanque:
   timeout: 10
   run_opts: null
   context: true
-
-agent:
-  model_id: gpt-4o-2024-05-13
-  temperature: 1.0
 
 search:
   kind: template
@@ -25,6 +23,7 @@ search:
 
 defaults:
   - _self_
+  - agent: gpt
   - benchmark: bb42
   - override hydra/job_logging: none
   - override hydra/hydra_logging: none

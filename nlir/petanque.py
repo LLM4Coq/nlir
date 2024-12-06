@@ -78,7 +78,8 @@ def split_proof(
     raw = remove_comments(proof)  # remove comments
     tactics = [
         t
-        for b in re.split(r"(?<=\.)\s+(\++|\*+|\-+|{|})", raw)  # split proof in bullets
+        for a in re.split(r"(\{|\})", raw) # split braces
+        for b in re.split(r"(?<=\.)\s+(\++|\*+|\-+)", a)  # split proof in bullets
         for s in re.split(r"(?<=\.)\s+", b)  # split bullets in tactics
         if (t := s.strip())  # remove empty steps
     ]
@@ -93,6 +94,8 @@ def get_context(doc: str, thm: str) -> str:
     """
     pattern = r"Proof\.(.*?)(Qed|Admitted|Abort)\."
     cleaned_text = re.sub(pattern, "", doc, flags=re.DOTALL)
+    # Replace multiple newlines with a single newline
+    cleaned_text = re.sub(r'\n+', '\n', cleaned_text)
     lines = cleaned_text.split("\n")
     for i, l in enumerate(lines):
         if thm in l:
@@ -340,6 +343,7 @@ class TemplateEnv(Env):
                 return fix(next_state, tactics[1:], False)
 
             except PetanqueError as err:
+                #print("xxxx", err.message)
                 if drop:  # still invalid, drop tactic.
                     return fix(state, tactics[1:], True)
                 if m := re.match(
@@ -385,10 +389,7 @@ class TemplateEnv(Env):
     def proof_finished(self) -> bool:
         if self.holes:
             return False
-        return True
-        # return self.check_proof() # this is done in the search
-        # if there is no more holes and the proof is not correct,
-        # we reached a dead end -> failed proof
+        return self.check_proof() 
 
     def exec(self, message: ChatCompletionMessage):
         """
